@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yantra — a computer that does not exist</title>
+<meta name="description" content="Yantra is a 16-bit fantasy computer with its own instruction set, assembler, disassembler and 64×64 screen, running in your browser. Write assembly, watch it draw.">
+<meta property="og:title" content="Yantra — a computer that does not exist">
+<meta property="og:description" content="A 16-bit CPU, an assembler and a 64×64 screen. Mandelbrot in fixed point, Snake in 236 words.">
+<meta name="theme-color" content="#0f1113">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f1113'/%3E%3Crect x='8' y='8' width='16' height='16' fill='none' stroke='%23f2b33d' stroke-width='3'/%3E%3Crect x='13' y='13' width='6' height='6' fill='%23f2b33d'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f3f0e8; --panel: #fbf9f4; --ink: #1d1c19; --muted: #6d6a62; --line: #d9d4c7;
+    --accent: #b5600b; --accent-ink: #fff; --code-bg: #fbf9f4; --err: #b3261e; --gutter: #8f8a7d;
+    --shadow: 0 1px 0 rgba(0,0,0,.04), 0 8px 24px rgba(40,30,10,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1113; --panel: #16191c; --ink: #e9e6df; --muted: #8b8f94; --line: #262b30;
+      --accent: #f2b33d; --accent-ink: #141414; --code-bg: #121417; --err: #ff6b5e; --gutter: #545a61;
+      --shadow: 0 1px 0 rgba(255,255,255,.02), 0 12px 32px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  code, pre, textarea, .mono { font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; }
+  a { color: inherit; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 28px 20px 40px; }
+  header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+  .brand h1 { margin: 0; font-size: clamp(28px, 4vw, 40px); letter-spacing: -.02em; line-height: 1; }
+  .brand h1 span { font-weight: 500; color: var(--accent); margin-right: .35em; }
+  .brand p { margin: 8px 0 0; color: var(--muted); max-width: 60ch; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tabs button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 7px 12px; border-radius: 999px; font: inherit; font-size: 13px; cursor: pointer; }
+  .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } .machine { order: -1; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+  .editor { display: flex; flex-direction: column; min-height: 560px; overflow: hidden; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .bar b { color: var(--ink); font-weight: 600; }
+  .code { position: relative; display: flex; flex: 1; min-height: 0; background: var(--code-bg); border-radius: 0 0 14px 14px; }
+  .gutter { padding: 12px 8px 12px 0; min-width: 46px; text-align: right; color: var(--gutter); font-size: 13px; line-height: 20px; user-select: none; overflow: hidden; white-space: pre; }
+  .gutter .err { color: var(--err); font-weight: 700; }
+  .gutter .pc { color: var(--accent); font-weight: 700; }
+  textarea { flex: 1; border: 0; outline: 0; resize: none; background: transparent; color: var(--ink); padding: 12px 14px 12px 8px; font-size: 13px; line-height: 20px; tab-size: 8; white-space: pre; overflow: auto; min-height: 480px; }
+  textarea:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+  .status { padding: 9px 14px; font-size: 13px; border-top: 1px solid var(--line); color: var(--muted); min-height: 38px; }
+  .status.err { color: var(--err); }
+  .machine { display: flex; flex-direction: column; gap: 14px; }
+  .screen-wrap { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .bezel { background: #050607; border-radius: 10px; padding: 14px; box-shadow: inset 0 0 0 1px #1d2125, inset 0 10px 30px rgba(0,0,0,.6); }
+  canvas { display: block; width: 100%; aspect-ratio: 1; image-rendering: pixelated; image-rendering: crisp-edges; border-radius: 3px; outline: none; }
+  canvas:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 8px 14px; border-radius: 9px; font: inherit; font-size: 14px; cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .btn:focus-visible, .tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .speed { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .speed input { width: 120px; accent-color: var(--accent); }
+  .state { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 520px) { .state { grid-template-columns: 1fr; } }
+  .box { padding: 12px 14px; }
+  .box h2 { margin: 0 0 8px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .regs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 14px; font-size: 13px; }
+  .regs div { display: flex; justify-content: space-between; }
+  .regs span:first-child { color: var(--muted); }
+  .regs .hot { color: var(--accent); }
+  .dis { margin: 0; font-size: 12.5px; line-height: 19px; white-space: pre; overflow: hidden; }
+  .dis .cur { color: var(--accent); font-weight: 700; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); }
+  .meta b { color: var(--ink); font-weight: 600; }
+  details { margin-top: 18px; }
+  details summary { cursor: pointer; font-weight: 600; padding: 12px 16px; list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::after { content: "+"; float: right; color: var(--muted); }
+  details[open] summary::after { content: "–"; }
+  .isa { padding: 0 16px 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 24px; font-size: 13px; }
+  .isa div { display: flex; gap: 10px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .isa code { color: var(--accent); min-width: 128px; }
+  .isa-notes { padding: 0 16px 16px; color: var(--muted); font-size: 13.5px; max-width: 80ch; }
+  footer { margin-top: 28px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 13px; }
+  footer a { text-underline-offset: 3px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1><span lang="sa">यन्त्र</span>Yantra</h1>
+      <p>A 16-bit computer that does not exist: its own instruction set, assembler, disassembler and a 64&times;64 screen. Pick a program, or write one.</p>
+    </div>
+    <nav class="tabs" id="tabs" aria-label="Programs"></nav>
+  </header>
+
+  <main class="grid">
+    <section class="panel editor" aria-label="Assembly editor">
+      <div class="bar"><span><b id="progName">program</b> · <span id="progBlurb"></span></span><span class="mono" id="size"></span></div>
+      <div class="code">
+        <div class="gutter mono" id="gutter" aria-hidden="true"></div>
+        <textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Assembly source"></textarea>
+      </div>
+      <div class="status" id="status" role="status" aria-live="polite">Ready.</div>
+    </section>
+
+    <section class="machine" aria-label="Machine">
+      <div class="panel screen-wrap">
+        <div class="bezel"><canvas id="screen" width="64" height="64" tabindex="0" aria-label="64 by 64 screen. Arrow keys or WASD steer while it has focus."></canvas></div>
+        <div class="controls">
+          <button class="btn primary" id="run">Run</button>
+          <button class="btn" id="step" title="One instruction">Step</button>
+          <button class="btn" id="reset">Reset</button>
+          <label class="speed">Speed <input type="range" id="speed" min="0" max="100" value="70" aria-label="Instructions per frame"><span class="mono" id="speedLbl"></span></label>
+        </div>
+        <div class="meta mono"><span>cycles <b id="cycles">0</b></span><span>rate <b id="rate">0</b></span><span>pc <b id="pcv">0000</b></span><span>sp <b id="spv">efff</b></span><span>key <b id="keyv">—</b></span></div>
+      </div>
+      <div class="state">
+        <div class="panel box"><h2>Registers</h2><div class="regs mono" id="regs"></div></div>
+        <div class="panel box"><h2>Around PC</h2><pre class="dis mono" id="dis"></pre></div>
+      </div>
+    </section>
+  </main>
+
+  <details class="panel">
+    <summary>Instruction set</summary>
+    <p class="isa-notes">Eight 16-bit registers, 65,536 words of memory. The screen is memory-mapped at <code>0xF000</code>: word <code>0xF000 + y*64 + x</code> holds a colour 0–15. The stack grows down from <code>0xEFFF</code>. Each instruction is one word — 6-bit opcode, three 3-bit register fields — plus one word when it carries an immediate. Labels end in <code>:</code>, constants are <code>NAME = value</code>, numbers can be decimal, <code>0x</code> hex or <code>0b</code> binary, and <code>a+b</code> works anywhere a value does.</p>
+    <div class="isa mono" id="isa"></div>
+  </details>
+
+  <footer>
+    <span><span lang="sa">यन्त्र</span> (yantra) — Sanskrit for an instrument, a machine, a thing that holds.</span>
+    <span>A deliberately useless thing by <a href="https://sushanth.avlokai.com/projects">Sushanth Kasturi</a></span>
+  </footer>
+</div>
+
+<script src="core.js"></script>
+<script src="demos.js"></script>
+<script>
+(() => {
+  'use strict';
+  const { CPU, assemble, disasm, OPS, SCREEN } = window.Yantra;
+  const demos = window.YantraDemos;
+
+  // A palette built for cycling: one dark, then a loop around the hue wheel.
+  const PALETTE = ['#0b0d10', '#2a1b5e', '#3d2a8c', '#4d47c2', '#3f7fe0', '#2fb3d6', '#2fd1a5', '#62e07a',
+                   '#b4e35a', '#f2d24a', '#f6a53b', '#ef6f3a', '#e0414f', '#c22e78', '#8e2c94', '#e9e6df'];
+  const RGB = PALETTE.map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
+
+  const $ = (id) => document.getElementById(id);
+  const src = $('src'), gutter = $('gutter'), statusEl = $('status');
+  const canvas = $('screen'), ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(64, 64);
+  const cpu = new CPU();
+  let program = null, running = false, current = null, errLine = -1;
+  let lastT = performance.now(), lastCycles = 0, rate = 0;
+
+  const ISA_DOC = {
+    HLT: 'stop', LDI: 'rd = imm', MOV: 'rd = rs', ADD: 'rd = rs + rt', SUB: 'rd = rs − rt', MUL: 'rd = rs × rt (low 16)',
+    DIV: 'rd = rs ÷ rt (unsigned, ÷0 = 0)', MOD: 'rd = rs mod rt', AND: 'rd = rs & rt', OR: 'rd = rs | rt', XOR: 'rd = rs ^ rt',
+    SHL: 'rd = rs << rt', SHR: 'rd = rs >>> rt', SAR: 'rd = rs >> rt (signed)', ADDI: 'rd = rs + imm',
+    LD: 'rd = mem[rs]', ST: 'mem[rd] = rs', JMP: 'pc = imm', JZ: 'if rs = 0', JNZ: 'if rs ≠ 0', JLT: 'if rs < rt (signed)',
+    JGE: 'if rs ≥ rt (signed)', JEQ: 'if rs = rt', JNE: 'if rs ≠ rt', CALL: 'push pc, jump', RET: 'pop pc', PUSH: 'push rs',
+    POP: 'pop into rd', RND: 'rd = random', FRAME: 'wait for the next frame', KEY: 'rd = last arrow (1↑ 2→ 3↓ 4←)',
+    FMUL: 'rd = (rs × rt) >> 8, signed 8.8', NOP: 'nothing',
+  };
+  const SHAPE = { d: 'rd', s: 'rs', t: 'rt', i: 'imm' };
+  $('isa').innerHTML = OPS.map(([n, sh]) => {
+    const ops = [...sh].map((k) => (n === 'ST' && k === 'd') ? '[rd]' : (n === 'LD' && k === 's') ? '[rs]' : SHAPE[k]).join(', ');
+    return `<div><code>${n} ${ops}</code><span>${ISA_DOC[n]}</span></div>`;
+  }).join('');
+
+  // ---- speed: 0..100 mapped exponentially to 200 .. 4,000,000 instructions per frame
+  const budget = () => Math.round(200 * Math.pow(20000, $('speed').value / 100));
+  const fmt = (n) => n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'k' : String(n);
+  const showSpeed = () => { $('speedLbl').textContent = fmt(budget()) + '/f'; };
+  $('speed').addEventListener('input', showSpeed); showSpeed();
+
+  // ---- editor gutter
+  function paintGutter() {
+    const n = src.value.split('\n').length;
+    const pcLine = program && program.lineOf[cpu.pc];
+    let out = '';
+    for (let i = 1; i <= n; i++) {
+      const cls = i === errLine ? 'err' : (!running && i === pcLine && cpu.cycles > 0 ? 'pc' : '');
+      out += cls ? `<span class="${cls}">${i}</span>\n` : i + '\n';
+    }
+    gutter.innerHTML = out;
+    gutter.scrollTop = src.scrollTop;
+  }
+  src.addEventListener('scroll', () => { gutter.scrollTop = src.scrollTop; });
+  src.addEventListener('input', () => { errLine = -1; program = null; paintGutter(); save(); });
+  src.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const s = src.selectionStart;
+      src.setRangeText('\t', s, src.selectionEnd, 'end');
+      src.dispatchEvent(new Event('input'));
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault(); start();
+    }
+  });
+
+  function save() { try { if (current === 'hello') localStorage.setItem('yantra-mine', src.value); } catch (_) {} }
+
+  // ---- program selection
+  function choose(id) {
+    const d = demos.find((x) => x.id === id) || demos[0];
+    current = d.id;
+    let text = d.src;
+    if (d.id === 'hello') { try { text = localStorage.getItem('yantra-mine') || d.src; } catch (_) {} }
+    src.value = text;
+    $('progName').textContent = d.name;
+    $('progBlurb').textContent = d.blurb;
+    [...$('tabs').children].forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === d.id)));
+    try { history.replaceState(null, '', '#' + d.id); } catch (_) {}
+    stop(); errLine = -1; program = null; build(); paintGutter();
+    if (d.id !== 'hello') start();
+  }
+  $('tabs').innerHTML = demos.map((d) => `<button type="button" data-id="${d.id}" aria-pressed="false">${d.name}</button>`).join('');
+  $('tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) choose(b.dataset.id); });
+
+  // ---- assemble + load
+  function build() {
+    try {
+      program = assemble(src.value);
+      cpu.load(program);
+      errLine = -1;
+      $('size').textContent = `${program.size} words`;
+      setStatus(`Assembled ${program.size} words, ${Object.keys(program.labels).length} labels.`);
+      return true;
+    } catch (e) {
+      program = null; errLine = e.line || -1;
+      $('size').textContent = '';
+      setStatus(e.message, true);
+      paintGutter();
+      return false;
+    }
+  }
+  function setStatus(msg, bad) { statusEl.textContent = msg; statusEl.classList.toggle('err', !!bad); }
+
+  // ---- run loop
+  function start() {
+    if (!build()) return;
+    running = true; $('run').textContent = 'Pause';
+    lastT = performance.now(); lastCycles = 0;
+  }
+  function stop() { running = false; $('run').textContent = cpu.halted ? 'Run' : (cpu.cycles ? 'Resume' : 'Run'); paintGutter(); }
+  $('run').addEventListener('click', () => {
+    if (running) return stop();
+    if (!program || cpu.halted) return start();
+    running = true; $('run').textContent = 'Pause';
+  });
+  $('step').addEventListener('click', () => {
+    if (!program && !build()) return;
+    running = false;
+    const r = cpu.run(1);
+    $('run').textContent = cpu.halted ? 'Run' : 'Resume';
+    if (r === 'fault') setStatus('Fault: ' + cpu.fault, true);
+    else if (r === 'halt') setStatus('Halted.');
+    paint(); paintGutter();
+  });
+  $('reset').addEventListener('click', () => { running = false; if (build()) setStatus('Reset. Press Run.'); $('run').textContent = 'Run'; paint(); paintGutter(); });
+
+  function tick(t) {
+    if (running && program) {
+      const r = cpu.run(budget());
+      if (r === 'halt') { running = false; setStatus(`Halted after ${cpu.cycles.toLocaleString()} instructions.`); stop(); }
+      else if (r === 'fault') { running = false; setStatus('Fault: ' + cpu.fault, true); stop(); }
+    }
+    if (t - lastT > 500) {
+      rate = ((cpu.cycles - lastCycles) * 1000) / (t - lastT);
+      lastT = t; lastCycles = cpu.cycles;
+      if (rate < 0) rate = 0;
+    }
+    paint();
+    requestAnimationFrame(tick);
+  }
+
+  // ---- display
+  const regEls = [];
+  $('regs').innerHTML = Array.from({ length: 8 }, (_, i) => `<div><span>r${i}</span><span id="r${i}"></span></div>`).join('');
+  for (let i = 0; i < 8; i++) regEls.push($('r' + i));
+  const prevRegs = new Uint16Array(8);
+  const hex = (v) => v.toString(16).padStart(4, '0');
+
+  function paint() {
+    const m = cpu.mem, d = img.data;
+    for (let i = 0; i < 4096; i++) {
+      const c = RGB[m[SCREEN + i] & 15], o = i * 4;
+      d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    for (let i = 0; i < 8; i++) {
+      const v = cpu.r[i];
+      regEls[i].textContent = `${hex(v)} ${String((v << 16) >> 16).padStart(6)}`;
+      regEls[i].classList.toggle('hot', v !== prevRegs[i] && !running);
+      prevRegs[i] = v;
+    }
+    $('cycles').textContent = cpu.cycles.toLocaleString();
+    $('rate').textContent = running ? fmt(Math.round(rate)) + ' ips' : '—';
+    $('pcv').textContent = hex(cpu.pc);
+    $('spv').textContent = hex(cpu.sp);
+    $('keyv').textContent = ['—', '↑', '→', '↓', '←'][cpu.key] || cpu.key;
+    paintDis();
+  }
+  function paintDis() {
+    // walk forward from a little before pc; resync on pc
+    const lines = [];
+    let a = Math.max(0, cpu.pc - 8);
+    const lineOf = program ? program.lineOf : null;
+    // move a to an instruction start that is assembled code
+    while (a < cpu.pc && lineOf && lineOf[a] === lineOf[a - 1] && a > 0) a++;
+    let guard = 0;
+    while (lines.length < 9 && guard++ < 40) {
+      const { text, len } = disasm(cpu.mem, a);
+      const here = a === cpu.pc;
+      lines.push(`${here ? '▸' : ' '} ${hex(a)}  ${here ? `<span class="cur">${text}</span>` : text}`);
+      a = (a + len) & 0xffff;
+    }
+    $('dis').innerHTML = lines.join('\n');
+  }
+
+  // ---- keyboard
+  const KEYMAP = { ArrowUp: 1, ArrowRight: 2, ArrowDown: 3, ArrowLeft: 4, w: 1, d: 2, s: 3, a: 4, W: 1, D: 2, S: 3, A: 4 };
+  window.addEventListener('keydown', (e) => {
+    if (document.activeElement === src) return;
+    if (e.key in KEYMAP && running) { cpu.key = KEYMAP[e.key]; if (e.key.startsWith('Arrow')) e.preventDefault(); }
+  });
+  let touch = null;
+  canvas.addEventListener('pointerdown', (e) => { touch = [e.clientX, e.clientY]; canvas.focus(); });
+  canvas.addEventListener('pointerup', (e) => {
+    if (!touch) return;
+    const dx = e.clientX - touch[0], dy = e.clientY - touch[1];
+    if (Math.max(Math.abs(dx), Math.abs(dy)) > 18) cpu.key = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 2 : 4) : (dy > 0 ? 3 : 1);
+    touch = null;
+  });
+
+  const initial = (location.hash || '').slice(1);
+  choose(demos.some((d) => d.id === initial) ? initial : 'mandel');
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
